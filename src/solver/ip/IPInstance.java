@@ -1,8 +1,11 @@
 package solver.ip;
 
 import ilog.cplex.*;
+import solver.lp.IloNumExpr;
+import solver.lp.IloNumVar;
 import ilog.concert.*;
 
+import java.lang.Math;
 import java.util.Arrays;
 
 public class IPInstance
@@ -14,6 +17,7 @@ public class IPInstance
   int numDiseases;		// number of diseases
   double[] costOfTest;  // [numTests] the cost of each test
   int[][] A;            // [numTests][numDiseases] 0/1 matrix if test is positive for disease
+  int[][][] absDiffTDD;   // absDiffTDD[numTests][numDiseases][numDiseases] 0/1 matrix of the absolute difference of the 2 disease ([i][j][k]=[i][k][j])
   
   public IPInstance()
   {
@@ -39,6 +43,16 @@ public class IPInstance
     for(int i=0; i < numTests; i++)
       for(int j=0; j < numDiseases; j++)
         this.A[i][j] = A[i][j];
+    
+    for(int t=0; t < numTests; t++) { // preprocessing (upper triangle excluding diagnol used)
+        for(int d1 =0; d1 < numDiseases; d1++) {
+        	for(int d2 =0; d2 < numDiseases; d2++) {
+        		this.absDiffTDD[t][d1][d2] = Math.abs(A[t][d1]- A[t][d2]);
+        		this.absDiffTDD[t][d2][d1] = Math.abs(A[t][d1]- A[t][d2]);
+        	}
+        }
+       
+    }
   }
   
   public String toString()
@@ -52,4 +66,43 @@ public class IPInstance
 		buf.append(Arrays.toString(A[i]) + "\n");
 	return buf.toString();
   }
+  
+  public void solve() {
+	  // I. Variables: binary variables of whether to include a test
+	  IloNumVar[] testVars = cplex.numVarArray(numTests, 0, 1, IloNumVarType.Float);
+	  // II. Constraints: for any pair of diseases, have at least one test that can differentiate them
+	  for(int d1=0; d1 < numDiseases; d1++) {
+		  for(int d2=d1+1; d2<numDiseases; d2++) { // d1<d2
+			  IloNumExpr testDiff = cplex.constant(0);
+			  for(int t=0; t<numTests; t++) {
+				  testDiff = cplex.sum(testDiff, cplex.prod(testVars[t],absDiffTDD[t][d1][d2]));
+			  }
+			  cplex.add(cplex.ge(testResDiff, 0)); // absolute difference is nonnegative
+		  }
+	  }
+	  // III. Objective: minimizes total cost
+	  IloNumExpr testCost = cplex.constant(0);
+	  for(int t=0; t<numTests; t++) {
+		  testCost = cplex.sum(testCost, cplex.prod(testVars[t],costOfTest[t]));
+	  }
+	  cplex.addMinimize(testCost);
+
+  }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
