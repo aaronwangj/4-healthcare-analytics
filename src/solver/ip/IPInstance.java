@@ -140,7 +140,7 @@ public class IPInstance
 		  int[] testValsInt = new int[numTests]; Boolean isIntSol = isIntegralSol(testVals, testValsInt);
 		  if(isIntSol) { // 3a. Integral: optimal for branch (may be entire tree if at root) -> update + backtrack
 			  bestObjective = cplex.getObjValue();
-			  incumbentSol = testValsInt;
+			  incumbentSol = testValsInt; // should be same as testVals;
 			  return;
 		  }  else { // 3b. Not integral: keep searching (guaranteed unconsTestVarIdx.size() > 0)->select variable to branch on (enforcing integral value)
 			  int branchTestVarIdx = unconsTestVarIdx.iterator().next(); // TODO: optimization - which variable to pick (fractional in exisitng solution / best first)
