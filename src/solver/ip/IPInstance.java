@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.HashSet;
 
 public class IPInstance
 {
@@ -88,7 +89,7 @@ public class IPInstance
 				  for(int t=0; t<numTests; t++) {
 					  testDiff = cplex.sum(testDiff, cplex.prod(testVars[t],absDiffTDD[t][d1][d2]));
 				  }
-				  cplex.add(cplex.ge(testDiff, 0)); // absolute difference is nonnegative
+				  cplex.add(cplex.ge(testDiff, 1)); // no negative value -> ge 1
 			  }
 		  }
 		  // III. Objective: minimizes total cost
@@ -104,7 +105,8 @@ public class IPInstance
 			unconsTestVarIdx.add(t);
 		}
 		// optimization TODO: List<Integer> testVarBranchVal = new ArrayList<Integer>(numTests); // idx: 0 or 1
-		  branchNBound(cplex, testVarIdx);
+		  branchNBound(cplex, unconsTestVarIdx);
+		  System.out.println();
 		  if( bestObjective == -1) {
 			  System.out.println("No solution found");
 		  } else {
@@ -118,35 +120,42 @@ public class IPInstance
 	 } catch(IloException e){
 		  System.out.println("Error " + e);
 	 }
+	 return -1;
   }
   
-  public void branchNBound(IloCplex cplex, Set<Integer> unconsTestVarIdx) {
+  public void branchNBound(IloCplex cplex, Set<Integer> unconsTestVarIdx) throws IloException{
+
   /* Recursive implementation of the branch & bound algorithm for solving IP problem with successive LP solving. bestObjective and incumbentSol altered upon return.
    * cplex: LP solver instance whose constraints are modified through passes and whose results are loaded for checking.
    * unconsTestVarIdx: indices of test variables that are not yet constrained. Vars not on this are assigned vals that can be checked through cplex.
    */
 	  // NOTE: termination condition of exhausting tree falls into 1. 2. or 3a. (guaranteed to be integral)
-	  if (!cplex.solve()) return;  // 1.  Infeasible: prune this branch (has no solution) and backtrack
-	  if (cplex.getObjValue() >= bestObjective && bestObjective != -1) return; // 2. Feasible + not dominant: prune and backtrack
-	  // 3. Feasible + dominant
-	  double[] testVals = new double[numTests]; testVals = cplex.getValues(testVars);
-	  int[] testValsInt = new int[numTests]; Boolean isIntSol = isIntegralSol(testVals, testValsInt);
-	  if(isIntSol) { // 3a. Integral: optimal for branch (may be entire tree if at root) -> update + backtrack
-		  bestObjective = cplex.getObjValue();
-		  incumbentSol = testValsInt;
-		  return;
-	  }  else { // 3b. Not integral: keep searching (guaranteed unconsTestVarIdx.size() > 0)->select variable to branch on (enforcing integral value)
-		  int branchTestVarIdx = unconsTestVarIdx.iterator().next(); // TODO: optimization - which variable to pick (fractional in exisitng solution / best first)
-		  unconsTestVarIdx.remove(branchTestVarIdx);
-		// TODO: optimization: which value to pick (0 or 1)
-		  IloRange branchingCon = myCplex.addEq(testVars[branchTestVarIdx],cplex.constant(1)); cplex.add(branchingCon);
-		  branchNBound(cplex, unconsTestVarIdx);
-		  cplex.remove(branchingCon); // delete
-		  branchingCon = myCplex.addEq(testVars[branchTestVarIdx], cplex.constant(0)); cplex.add(branchingCon);
-		  branchNBound(cplex, unconsTestVarIdx);
-		  cplex.remove(branchingCon); // delete
-		  unconsTestVarIdx.add(branchTestVarIdx); // May be unnecessary
-	  }
+	 try{ 
+		
+		  if (!cplex.solve()) { return; }  // 1.  Infeasible: prune this branch (has no solution) and backtrack
+		  if (cplex.getObjValue() >= bestObjective && bestObjective != -1) { return; } // 2. Feasible + not dominant: prune and backtrack
+		  // 3. Feasible + dominant
+		  double[] testVals = new double[numTests]; testVals = cplex.getValues(testVars);
+		  int[] testValsInt = new int[numTests]; Boolean isIntSol = isIntegralSol(testVals, testValsInt);
+		  if(isIntSol) { // 3a. Integral: optimal for branch (may be entire tree if at root) -> update + backtrack
+			  bestObjective = cplex.getObjValue();
+			  incumbentSol = testValsInt;
+			  return;
+		  }  else { // 3b. Not integral: keep searching (guaranteed unconsTestVarIdx.size() > 0)->select variable to branch on (enforcing integral value)
+			  int branchTestVarIdx = unconsTestVarIdx.iterator().next(); // TODO: optimization - which variable to pick (fractional in exisitng solution / best first)
+			  unconsTestVarIdx.remove(branchTestVarIdx);
+			// TODO: optimization: which value to pick (0 or 1)
+			  IloConstraint branchingCon = cplex.addEq(testVars[branchTestVarIdx],cplex.constant(1)); cplex.add(branchingCon);
+			  branchNBound(cplex, unconsTestVarIdx);
+			  cplex.remove(branchingCon); // delete
+			  branchingCon = cplex.addEq(testVars[branchTestVarIdx], cplex.constant(0)); cplex.add(branchingCon);
+			  branchNBound(cplex, unconsTestVarIdx);
+			  cplex.remove(branchingCon); // delete
+			  unconsTestVarIdx.add(branchTestVarIdx); // May be unnecessary
+		  }
+	 } catch(IloException e){
+		  System.out.println("Error " + e);
+	 }
   }
 	  
   
