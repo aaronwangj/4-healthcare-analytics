@@ -106,6 +106,7 @@ public class IPInstance
 		}
 		// optimization TODO: List<Integer> testVarBranchVal = new ArrayList<Integer>(numTests); // idx: 0 or 1
 		  branchNBound(cplex, unconsTestVarIdx);
+		  
 		  System.out.println();
 		  if( bestObjective == -1) {
 			  System.out.println("No solution found");
