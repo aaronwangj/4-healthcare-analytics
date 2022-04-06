@@ -25,7 +25,7 @@ public class IPInstance
   
   double bestObjective = -1;
   int[] incumbentSol = new int[numTests];
-  IloNumVar[] testVars;  // for access in branchNBound
+  IloNumVar[] testVars;  // for access in branchNBound and pickBranchVarIdx functions
   
   public IPInstance()
   {
@@ -146,44 +146,45 @@ public class IPInstance
 	 try{ 
 		
 		  if (!cplex.solve()) { return; }  // 1.  Infeasible: prune this branch (has no solution) and backtrack
-		  
-//		  System.out.print(cplex.getObjValue());
-//		  printSolution(cplex.getValues(testVars));
+//		  System.out.print(cplex.getObjValue()); printSolution(cplex.getValues(testVars));
 		  
 		  if (cplex.getObjValue() >= bestObjective && bestObjective != -1) { return; } // 2. Feasible + not dominant: prune and backtrack
 		  // 3. Feasible + dominant (lower objective=cost)
 		  double[] testVals = new double[numTests]; testVals = cplex.getValues(testVars);
 		  int[] testValsInt = new int[numTests]; Boolean isIntSol = isIntegralSol(testVals, testValsInt);
 		  if(isIntSol) { 
-			  System.out.println("!!!"+cplex.getObjValue());
+//			  System.out.println("!!!"+cplex.getObjValue());
 			  // 3a. Integral: optimal for branch (may be entire tree if at root) -> update + backtrack
 			  bestObjective = cplex.getObjValue();
 			  incumbentSol = testValsInt; // should be same as testVals;
 			  return;
 		  }
 		  // 3b. Not integral: keep searching (guaranteed unconsTestVarIdx.size() > 0)->select variable to branch on (enforcing integral value)
-		  int branchTestVarIdx = pickBranchingVarIdx(unconsTestVarIdx, testVals); // TODO: optimization - which var to pick (fractional in exisitng sol / best first)
-//		  System.out.println("@ branchTestVarIdx = " + branchTestVarIdx);
+		  int branchTestVarIdx = pickBranchVarIdx_frac(cplex, unconsTestVarIdx, testVals); 
 		  unconsTestVarIdx.remove(branchTestVarIdx);
 		  // TODO: optimization: which value to pick (0 or 1)
 		  IloConstraint branchingCon = cplex.eq(testVars[branchTestVarIdx],cplex.constant(1)); cplex.add(branchingCon);
-//		  System.out.println("@ branchTestVarIdx = " + branchTestVarIdx + " [1]");
 		  branchNBound(cplex, unconsTestVarIdx);
 		  cplex.remove(branchingCon); // delete
 		  branchingCon = cplex.eq(testVars[branchTestVarIdx], cplex.constant(0)); cplex.add(branchingCon);
-//		  System.out.println("@ branchTestVarIdx = " + branchTestVarIdx + " [0]");
 		  branchNBound(cplex, unconsTestVarIdx);
 		  cplex.remove(branchingCon); // delete
-		  
 		  unconsTestVarIdx.add(branchTestVarIdx); // May be unnecessary
 		  
 	 } catch(IloException e){
 		  System.out.println("Error " + e);
 	 }
   }
-	  
-  public int pickBranchVarIdx_frac(Set<Integer> unconsTestVarIdx, double[] testVals) {
-	  // pick variable with fractional value
+
+
+  
+  public int pickBranchVarIdx_order(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) {
+	  /* pick the next unconstrainted variable in order */
+	  return unconsTestVarIdx.iterator().next();
+  }
+  
+  public int pickBranchVarIdx_frac(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) {
+	  /* pick variable with fractional value in current solution 'testVals' */
 	  for (int t = 0; t<numTests; t++) {
 		  if (testVals[t] != (int)testVals[t]) {
 			  return t; // has fractional value: def in unconsTestVarIdx
@@ -192,9 +193,23 @@ public class IPInstance
 	  // should not be reached
 	  return unconsTestVarIdx.iterator().next();
   }
-  
-  public int pickBranchVarIdx_order(Set<Integer> unconsTestVarIdx, double[] testVals) {
-	  return unconsTestVarIdx.iterator().next();
+	
+  public int pickBranchVarIdx_bfs(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) throws IloException {
+	  /* best-first search: pick var whose objective value with one additional integral constraint is the best*/
+	  double bestObjective = -1; 
+	  int bestObjBranchVarIdx=unconsTestVarIdx.iterator().next();
+      for (int tvi : unconsTestVarIdx) {
+    	  IloConstraint branchingCon = cplex.eq(testVars[tvi],cplex.constant(1)); 
+    	  cplex.add(branchingCon);
+          if(cplex.solve()) {
+        	  if (bestObjective == -1 || cplex.getObjValue() < bestObjective) { 
+        		  bestObjective = cplex.getObjValue(); bestObjBranchVarIdx = tvi;
+    		  }
+          }
+          cplex.remove(branchingCon);
+      }
+	  // should not be reached
+	  return bestObjBranchVarIdx;
   }
   
   public boolean isIntegralSol(double[] testVals, int[] testValsInt) {
