@@ -162,7 +162,7 @@ public class IPInstance
 			  return;
 		  }
 		  // 3b. Not integral: keep searching (guaranteed unconsTestVarIdx.size() > 0)->select variable to branch on (enforcing integral value)
-		  int branchTestVarIdx = unconsTestVarIdx.iterator().next(); // TODO: optimization - which var to pick (fractional in exisitng sol / best first)
+		  int branchTestVarIdx = pickBranchingVarIdx(unconsTestVarIdx, testVals); // TODO: optimization - which var to pick (fractional in exisitng sol / best first)
 //		  System.out.println("@ branchTestVarIdx = " + branchTestVarIdx);
 		  unconsTestVarIdx.remove(branchTestVarIdx);
 		  // TODO: optimization: which value to pick (0 or 1)
@@ -172,7 +172,7 @@ public class IPInstance
 		  cplex.remove(branchingCon); // delete
 		  branchingCon = cplex.eq(testVars[branchTestVarIdx], cplex.constant(0)); cplex.add(branchingCon);
 //		  System.out.println("@ branchTestVarIdx = " + branchTestVarIdx + " [0]");
-		  branchNBound(cplex, unconsTestVarIdx)
+		  branchNBound(cplex, unconsTestVarIdx);
 		  cplex.remove(branchingCon); // delete
 		  
 		  unconsTestVarIdx.add(branchTestVarIdx); // May be unnecessary
@@ -182,6 +182,20 @@ public class IPInstance
 	 }
   }
 	  
+  public int pickBranchVarIdx_frac(Set<Integer> unconsTestVarIdx, double[] testVals) {
+	  // pick variable with fractional value
+	  for (int t = 0; t<numTests; t++) {
+		  if (testVals[t] != (int)testVals[t]) {
+			  return t; // has fractional value: def in unconsTestVarIdx
+		  }
+	  }
+	  // should not be reached
+	  return unconsTestVarIdx.iterator().next();
+  }
+  
+  public int pickBranchVarIdx_order(Set<Integer> unconsTestVarIdx, double[] testVals) {
+	  return unconsTestVarIdx.iterator().next();
+  }
   
   public boolean isIntegralSol(double[] testVals, int[] testValsInt) {
 	  /* Returns true if all values in testVals are integers. testValsInt populated (passed by reference) */
