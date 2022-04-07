@@ -26,6 +26,7 @@ public class IPInstance
   double bestObjective = -1;
   int[] incumbentSol = new int[numTests];
   IloNumVar[] testVars;  // for access in branchNBound and pickBranchVarIdx functions
+  int beginning = 1;
   
   public IPInstance()
   {
@@ -105,7 +106,6 @@ public class IPInstance
 		for (int t = 0; t<numTests; t++) {
 			unconsTestVarIdx.add(t);
 		}
-		// optimization TODO: List<Integer> testVarBranchVal = new ArrayList<Integer>(numTests); // idx: 0 or 1
 		  branchNBound(cplex, unconsTestVarIdx); // modifies bestObjective
 		  
 		  System.out.println();
@@ -138,9 +138,10 @@ public class IPInstance
   }
   public void branchNBound(IloCplex cplex, Set<Integer> unconsTestVarIdx) throws IloException{
 
-  /* Recursive implementation of the branch & bound algorithm for solving IP problem with successive LP solving. bestObjective and incumbentSol altered upon return.
+  /* Recursive implementation of the branch & bound algorithm for solving IP problem with successive LP solving. 
+   * bestObjective and incumbentSol altered upon return.
    * cplex: LP solver instance whose constraints are modified through passes and whose results are loaded for checking.
-   * unconsTestVarIdx: indices of test variables that are not yet constrained. Vars not on this are assigned vals that can be checked through cplex.
+   * unconsTestVarIdx: indices of test variables that are not yet constrained. Vars not on this are assigned integral vals.
    */
 	  // NOTE: termination condition of exhausting tree falls into 1. 2. or 3a. (guaranteed to be integral)
 	 try{ 
@@ -160,13 +161,27 @@ public class IPInstance
 			  return;
 		  }
 		  // 3b. Not integral: keep searching (guaranteed unconsTestVarIdx.size() > 0)->select variable to branch on (enforcing integral value)
-		  int branchTestVarIdx = pickBranchVarIdx_frac(cplex, unconsTestVarIdx, testVals); 
+		  int branchTestVarIdx = pickBranchVarIdx_frac(cplex, unconsTestVarIdx, testVals);
+		  int firstBranch = 1; int secondBranch = 0;
+		  
+//		  int[] branching = pickBranchVarIdx_bestfrac(cplex, unconsTestVarIdx, testVals);
+//		  int branchTestVarIdx = branching[0];int firstBranch = branching[1]; int secondBranch = branching[2];
+		  
+//		  if(beginning==1){  
+//			  System.out.println("beginning!");
+//			  branchTestVarIdx = pickBranchVarIdx_best(cplex, unconsTestVarIdx, testVals);
+//			  beginning = 0;
+//		  } else {
+//			  System.out.println("else!");
+//			  branchTestVarIdx = pickBranchVarIdx_frac(cplex, unconsTestVarIdx, testVals);
+//		  } 
+		  
 		  unconsTestVarIdx.remove(branchTestVarIdx);
-		  // TODO: optimization: which value to pick (0 or 1)
-		  IloConstraint branchingCon = cplex.eq(testVars[branchTestVarIdx],cplex.constant(1)); cplex.add(branchingCon);
+		  // TODO: optimization: which value to pick (0 or 1) - List<Integer> testVarBranchVal = new ArrayList<Integer>(numTests) of idx: 0 or 1
+		  IloConstraint branchingCon = cplex.eq(testVars[branchTestVarIdx],cplex.constant(firstBranch)); cplex.add(branchingCon);
 		  branchNBound(cplex, unconsTestVarIdx);
 		  cplex.remove(branchingCon); // delete
-		  branchingCon = cplex.eq(testVars[branchTestVarIdx], cplex.constant(0)); cplex.add(branchingCon);
+		  branchingCon = cplex.eq(testVars[branchTestVarIdx], cplex.constant(secondBranch)); cplex.add(branchingCon);
 		  branchNBound(cplex, unconsTestVarIdx);
 		  cplex.remove(branchingCon); // delete
 		  unconsTestVarIdx.add(branchTestVarIdx); // May be unnecessary
@@ -193,8 +208,45 @@ public class IPInstance
 	  // should not be reached
 	  return unconsTestVarIdx.iterator().next();
   }
-	
-  public int pickBranchVarIdx_bfs(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) throws IloException {
+  
+  public int[] pickBranchVarIdx_bestfrac(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) {
+	  /* pick variable with fractional value in current solution 'testVals' closest to an integer + the closest integer */
+	  double absDiffToInt = 2;
+	  int[] out = {unconsTestVarIdx.iterator().next(), 1, 0};
+	  for (int t = 0; t<numTests; t++) {
+		  if (testVals[t] != (int)testVals[t]) { // fractional: def in unconsTestVarIdx
+			  int closestInt = (int)(testVals[t]+0.5);
+			  if(Math.abs(testVals[t] - closestInt) < absDiffToInt) {
+				  absDiffToInt = Math.abs(testVals[t] - closestInt);
+				  out[0] = t; out[1] = closestInt; out[2] = 1-closestInt; 
+			  }
+		  }
+	  }
+	  return out;
+  }
+  
+  public int pickBranchVarIdx_limitedbest(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) throws IloException {
+	  /* limited best-first search: pick among the first "count" variables whose objective value with one additional integral constraint is the best*/
+	  double bestObjective = -1; int count = 5;
+	  int bestObjBranchVarIdx=unconsTestVarIdx.iterator().next();
+      for (int tvi : unconsTestVarIdx) {
+    	  if(count==0) {break;}
+    	  count--;
+    	  IloConstraint branchingCon = cplex.eq(testVars[tvi],cplex.constant(1)); 
+    	  cplex.add(branchingCon);
+          if(cplex.solve()) {
+        	  if (bestObjective == -1 || cplex.getObjValue() < bestObjective) { 
+        		  bestObjective = cplex.getObjValue(); bestObjBranchVarIdx = tvi;
+    		  }
+          }
+          cplex.remove(branchingCon);
+      }
+	  // should not be reached
+	  return bestObjBranchVarIdx;
+  }
+  
+  
+  public int pickBranchVarIdx_best(IloCplex cplex, Set<Integer> unconsTestVarIdx, double[] testVals) throws IloException {
 	  /* best-first search: pick var whose objective value with one additional integral constraint is the best*/
 	  double bestObjective = -1; 
 	  int bestObjBranchVarIdx=unconsTestVarIdx.iterator().next();
